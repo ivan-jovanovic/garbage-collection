@@ -1,11 +1,14 @@
 # Garbage Collection Pipeline
 
-Automated code cleanup pipeline that uses **Claude Code** (and optionally **Codex**) to find and remove dead code, simplify complexity, and clean up technical debt — file by file, with safety gates at every step.
+`gc.sh` is a standalone, language-agnostic code cleanup pipeline that uses **Claude Code** (and optionally **Codex**) to find and remove dead code, simplify complexity, and clean up technical debt.
 
-## How it works
+## Core Purpose
 
-For each file matched by your glob patterns, the pipeline runs 6 steps:
+The tool addresses a fundamental question: "What dead code, duplication, and unnecessary complexity has accumulated in this codebase, and how do I clean it up safely — file by file, with verification at every step?"
 
+## Key Features
+
+**6-Step Pipeline**: Each matched file is processed through a full cleanup cycle:
 1. **GC Analysis** — Dead code, duplication, complexity, stale comments (read-only)
 2. **Second opinion** — Codex reviews the findings (optional, skippable)
 3. **Make changes** — Executes the action plan (behavior-preserving only)
@@ -13,7 +16,55 @@ For each file matched by your glob patterns, the pipeline runs 6 steps:
 5. **Code review** — Codex reviews the diff (optional, skippable)
 6. **Gate + commit** — Runs your test suite, then commits that iteration's changes
 
-The pipeline creates a dedicated branch for the run and, by default, makes one commit per processed file. A final gate run verifies everything works together.
+**What Gets Analyzed**: The pipeline scans for unused functions, methods, variables, and imports; duplicated logic across the full project; over-abstraction and premature generalization; stale comments and TODOs; and inconsistent patterns.
+
+**Configuration**: All settings live in a `gc.yml` file in your project root:
+- Named file groups with glob patterns and exclusions
+- Quality gate command (test suite)
+- Codex integration toggle
+- Commit behavior (auto-commit, prefix, scope derivation)
+- Advanced tuning for timeouts and max turns
+
+## Usage
+
+```bash
+# 1. Create a gc.yml config in your project
+cp /path/to/garbage-collection/gc.example.yml ./gc.yml
+
+# 2. Preview what files will be processed
+/path/to/gc.sh --dry-run
+
+# 3. Run the pipeline
+/path/to/gc.sh
+
+# Target a specific file group
+/path/to/gc.sh --group api
+
+# Target a file or directory directly
+/path/to/gc.sh --path src/utils/parser.py
+/path/to/gc.sh --path controllers
+
+# Skip Codex steps
+/path/to/gc.sh --skip-codex
+
+# Leave changes uncommitted
+/path/to/gc.sh --no-commit
+
+# Resume from a specific file
+/path/to/gc.sh --path controllers --resume-from controllers/user_controller.py
+
+# Background execution
+nohup /path/to/gc.sh > gc.log 2>&1 &
+```
+
+## Output Includes
+
+- A dedicated branch with one commit per processed file
+- Per-file logs in `.gc-logs/<timestamp>/` with JSON output and stderr for every step
+- A final full gate run verifying all changes work together
+- A summary of succeeded and failed files with next-step instructions
+
+**Interactive slash commands** are also available for ad-hoc use. Symlink `.claude/commands/` into your project to access `/gc`, `/self-review`, `/ask-for-code-review`, and `/consult-idea` during a Claude Code conversation.
 
 ## Requirements
 
@@ -22,189 +73,9 @@ The pipeline creates a dedicated branch for the run and, by default, makes one c
 - [`jq`](https://stedolan.github.io/jq/) for JSON parsing (`brew install jq`)
 - [Codex](https://github.com/openai/codex) (optional — `npm install -g @openai/codex`)
 
-## Quick start
+## Current Limitations
 
-```bash
-# 1. Clone this repo
-git clone <repo-url> ~/garbage-collection
-
-# 2. Go to your project
-cd /path/to/your-project
-
-# 3. Create a gc.yml config (copy an example and edit it)
-cp ~/garbage-collection/gc.example.yml ./gc.yml
-# edit gc.yml for your project...
-
-# 4. Preview what files will be processed
-~/garbage-collection/gc.sh --dry-run
-
-# 5. Run the pipeline
-~/garbage-collection/gc.sh
-```
-
-## Configuration
-
-All settings live in a `gc.yml` file in your project root. See [`gc.example.yml`](gc.example.yml) for the full reference.
-
-Use `gc.yml` for project defaults and policy:
-- file groups and exclusions
-- the verification command
-- default Codex usage
-- default commit behavior
-
-Use CLI flags for run-specific choices:
-- which path or named group to target
-- dry-run vs execute
-- temporary overrides like skipping Codex or leaving changes uncommitted
-- resuming from a later file in the list
-
-### Minimal config
-
-```yaml
-files:
-  default:
-    - "src/**/*.py"
-
-gate:
-  command: "pytest"
-
-commit:
-  auto_commit: true
-
-codex:
-  enabled: false
-```
-
-Advanced tuning such as `timeouts.*` and `max_turns.*` is supported, but it is intentionally omitted from the minimal example. Most projects should rely on the built-in defaults unless they have a concrete runtime issue to solve.
-
-The pipeline is intended to run in a clean git working tree. It creates a dedicated branch for the run and uses `git diff` for per-iteration self-review and optional Codex review.
-
-### File groups
-
-Define named scopes for directories or mixed file sets you run often, then target them with `--group`:
-
-```yaml
-files:
-  default:
-    - "src/**/*.py"
-  api:
-    - "api/**/*.py"
-    - "api/**/*.ts"
-  workers:
-    - "workers/**/*.py"
-```
-
-```bash
-gc.sh --group api       # Only process api files
-gc.sh --group workers   # Only process worker files
-gc.sh                   # Uses "default" group
-```
-
-### Direct path targeting
-
-For one-off runs, target a file or directory directly with `--path`:
-
-```bash
-gc.sh --path controllers
-gc.sh --path controllers/user_controller.py
-gc.sh --path src/api/controllers --dry-run
-```
-
-If `--path` points to a directory, the script recursively collects files under it and still applies `exclude` rules from `gc.yml`. `--path` and `--group` are mutually exclusive.
-
-### Exclude patterns
-
-```yaml
-exclude:
-  - "**/__init__.py"
-  - "**/node_modules/**"
-  - "**/*.test.*"
-```
-
-## Usage
-
-```
-gc.sh [OPTIONS]
-
-Options:
-  --config <path>         Path to gc.yml (default: ./gc.yml)
-  --path <path>           Process a file or recursively process a directory
-  --group <name>          File group from config (default: "default")
-  --file <path>           Deprecated alias for --path <file>
-  --dry-run               Preview file list, don't execute
-  --skip-codex            Skip Codex second-opinion and review steps
-  --no-commit             Leave changes uncommitted
-  --resume-from <path>    Start from a specific file in the resolved file list
-  -h, --help              Show help
-```
-
-### Examples
-
-```bash
-# Dry run to see what would be processed
-gc.sh --dry-run
-
-# Run on default file group, no Codex
-gc.sh --skip-codex
-
-# Run on a directory directly
-gc.sh --path controllers
-
-# Run on a single file directly
-gc.sh --path src/utils/parser.py
-
-# Run on the "api" group with default per-file commits
-gc.sh --group api
-
-# Run on the "api" group but leave changes uncommitted
-gc.sh --group api --no-commit
-
-# Resume from a later file in a directory run
-gc.sh --path controllers --resume-from controllers/user_controller.py
-
-# Background execution
-nohup gc.sh > gc.log 2>&1 &
-# or
-tmux new -d -s gc 'gc.sh'
-```
-
-## Examples
-
-Pre-made configs for common project types:
-
-- [`examples/python.yml`](examples/python.yml)
-- [`examples/node.yml`](examples/node.yml)
-- [`examples/go.yml`](examples/go.yml)
-
-## What it does NOT do
-
-- Change behavior. All changes are strictly behavior-preserving.
-- Touch formatting or style. No reformatting, no renaming.
-- Add code. No new abstractions, no new comments, no new tests.
-- Push to remote automatically. You review the branch and push when ready.
-
-## Interactive slash commands
-
-The repo ships with Claude Code commands in `.claude/commands/` that you can use interactively during a conversation. To make them available in your project, symlink the directory:
-
-```bash
-# From your project root
-ln -s /path/to/garbage-collection/.claude/commands .claude/commands/gc
-```
-
-Then in Claude Code you can use:
-
-| Command | Description |
-|---|---|
-| `/gc [file\|dir\|all]` | Analyze dead code, duplication, complexity |
-| `/self-review` | Self-evaluate work done in this session |
-| `/ask-for-code-review` | Get Codex to review your uncommitted changes |
-| `/consult-idea` | Get Codex second opinion on an idea |
-
-These are the same prompts the pipeline script uses internally, exposed for ad-hoc use.
-
-## Logs
-
-All pipeline output is saved to `.gc-logs/<timestamp>/` in your project directory. This directory is automatically added to `.gitignore`.
-
-Each file gets a subdirectory with JSON output and stderr logs for every step, useful for debugging failures or reviewing what Claude found.
+- All changes are strictly **behavior-preserving**. The pipeline does not add features, refactor architecture, or change how anything works.
+- Cross-file duplication is **detected** across the full project but only **acted on** within the target scope. Consolidation across module boundaries is flagged for manual follow-up.
+- The pipeline requires a **clean git working tree**. Commit or stash local changes before running.
+- Pre-made example configs exist for Python, Node, and Go (`examples/`), but the tool works with any language.
