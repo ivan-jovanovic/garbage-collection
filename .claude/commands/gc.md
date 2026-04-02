@@ -29,7 +29,7 @@ Go through the target files carefully and check for the following:
 
 ### 2. Duplication and Pattern Inconsistency
 
-- **Duplicated logic** — similar or identical code blocks that could be consolidated into a single function or utility
+- **Duplicated logic** — similar or identical code blocks that could be consolidated into a single function or utility. For every non-trivial function, constant, or logic block in the target files, grep the rest of the project for similar code (same function name, similar signatures, near-identical logic). Flag duplicates even if they live outside the current target scope — include file paths of all copies found.
 - **Inconsistent patterns** — different ways of doing the same thing across the codebase:
   - Import styles (default vs named, relative vs absolute paths)
   - How external services/APIs are called (direct fetch vs wrapper, different HTTP clients)
@@ -61,6 +61,9 @@ Items that are clearly dead or unused. No risk of breakage.
 
 ### Simplify
 Code that works but is more complex than it needs to be. Include a brief description of how to simplify it.
+
+### Duplicate Across Codebase
+Code that exists in similar form elsewhere in the project. List all locations. If the duplicate is outside the target scope, note it for manual consolidation — do not plan changes to those files.
 
 ### Inconsistent Patterns
 List each inconsistency found, which pattern is dominant, and which files are the outliers.

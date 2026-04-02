@@ -9,7 +9,7 @@
 #   3. Make changes based on combined feedback
 #   4. Self-review + fix
 #   5. Codex code review + fix (optional)
-#   6. Gate + report
+#   6. Gate + commit
 #
 # Usage:
 #   /path/to/gc.sh                              # Uses ./gc.yml, default group
@@ -19,6 +19,7 @@
 #   /path/to/gc.sh --config path/to/gc.yml      # Explicit config path
 #   /path/to/gc.sh --dry-run                    # Preview file list only
 #   /path/to/gc.sh --skip-codex                 # Skip Codex steps
+#   /path/to/gc.sh --no-commit                  # Leave changes uncommitted
 #   /path/to/gc.sh --resume-from src/foo.py     # Start from a specific file
 #
 # Background execution:
@@ -75,6 +76,7 @@ CONFIG_FILE="gc.yml"
 GROUP="default"
 DRY_RUN=false
 SKIP_CODEX=false
+NO_COMMIT=false
 SINGLE_FILE=""
 PATH_TARGET=""
 RESUME_FROM=""
@@ -88,6 +90,7 @@ while [[ $# -gt 0 ]]; do
         --file)         SINGLE_FILE="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=true; shift ;;
         --skip-codex)   SKIP_CODEX=true; shift ;;
+        --no-commit)    NO_COMMIT=true; shift ;;
         --resume-from)  RESUME_FROM="$2"; shift 2 ;;
         -h|--help)
             cat <<'EOF'
@@ -102,6 +105,7 @@ Run controls:
   --config <path>         Path to gc.yml (default: ./gc.yml)
   --dry-run               Preview file list, don't execute
   --skip-codex            Skip Codex second-opinion and review steps
+  --no-commit             Leave changes uncommitted
   --resume-from <path>    Start from a specific file in the resolved file list
   --file <path>           Deprecated alias for --path <file>
   -h, --help              Show help
@@ -194,6 +198,12 @@ MAX_TURNS_GATE=$(yq_read_default '.max_turns.gate' '20')
 # Gate
 GATE_COMMAND=$(yq_read_default '.gate.command' '')
 GATE_REQUIRED=$(yq_read_default '.gate.required' 'true')
+
+# Commit
+COMMIT_PREFIX=$(yq_read_default '.commit.prefix' 'refactor')
+SCOPE_FROM_PATH=$(yq_read_default '.commit.scope_from_path' 'true')
+AUTO_COMMIT=$(yq_read_default '.commit.auto_commit' 'true')
+[[ "$NO_COMMIT" == true ]] && AUTO_COMMIT=false
 
 # Codex
 CODEX_ENABLED=$(yq_read_default '.codex.enabled' 'true')
@@ -361,6 +371,8 @@ fi
 
 # ── Setup ──────────────────────────────────────────────────────
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+BRANCH=""
+PENDING_BRANCH="${COMMIT_PREFIX}/gc-${TIMESTAMP}"
 LOG_DIR="$PROJECT_DIR/.gc-logs/${TIMESTAMP}"
 TOOLS_READONLY="Read,Glob,Grep,Bash"
 TOOLS_FULL="Read,Edit,Write,Glob,Grep,Bash"
@@ -374,6 +386,7 @@ echo "║  Target:     ${TARGET_MODE}: ${TARGET_LABEL}"
 echo "║  Files:      ${#FILES[@]}"
 echo "║  Gate:       ${GATE_COMMAND:-none}"
 echo "║  Codex:      $CODEX_ENABLED"
+echo "║  Auto-commit: $AUTO_COMMIT"
 echo "║  Dry run:    $DRY_RUN"
 echo "║  Logs:       $LOG_DIR"
 echo "╚════════════════════════════════════════════════════════╝"
@@ -390,15 +403,27 @@ fi
 # ── Git setup ──────────────────────────────────────────────────
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
     echo "ERROR: Must run inside a git repository."
-    echo "The pipeline uses git diff for self-review, Codex review, and final reporting."
+    echo "The pipeline uses git diff for self-review, Codex review, and gate/commit steps."
     exit 1
 fi
 
-# Require a clean baseline so the final diff reflects only GC changes.
-if ! git diff --quiet HEAD 2>/dev/null; then
-    echo "ERROR: Working tree has uncommitted changes."
+# Require a clean baseline so each iteration's diff is isolated.
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo "ERROR: Working tree has local changes."
     echo "Commit or stash them first, then re-run."
     exit 1
+fi
+
+if [[ "$AUTO_COMMIT" == true ]]; then
+    CURRENT_BRANCH=$(git branch --show-current)
+    if [[ "$CURRENT_BRANCH" == refactor/* || "$CURRENT_BRANCH" == gc/* ]]; then
+        BRANCH="$CURRENT_BRANCH"
+        echo "Reusing existing branch: $BRANCH"
+    else
+        BRANCH="$PENDING_BRANCH"
+        git checkout -b "$BRANCH"
+        echo "Created new branch: $BRANCH"
+    fi
 fi
 
 mkdir -p "$LOG_DIR"
@@ -476,7 +501,7 @@ Read the file carefully. Then search the ENTIRE project (all directories) to ver
 
 Analyze for:
 1. **Dead Code** — Unused functions, methods, variables, imports. Grep across the full project to confirm.
-2. **Duplication** — Similar code blocks that could be consolidated.
+2. **Duplication** — For every non-trivial function, constant, or logic block in this file, grep the rest of the project for similar code (same function name, similar signatures, near-identical logic). Flag duplicates even if they live outside the current target scope. Include the file paths of all copies found.
 3. **Unnecessary Complexity** — Over-abstraction, premature generalization, overly clever code.
 4. **Stale Comments/TODOs** — Outdated or redundant comments, old TODOs.
 
@@ -485,6 +510,7 @@ For each finding include file path, line numbers, and code snippets.
 Organize by confidence:
 - **Safe to Remove**: Clearly dead/unused, verified across the project
 - **Simplify**: Works but more complex than needed, with suggested simplification
+- **Duplicate Across Codebase**: Code that exists in similar form elsewhere in the project. List all locations. If the duplicate is OUTSIDE the current file, note it for manual consolidation — do not plan changes to other files.
 - **Inconsistent Patterns**: Different ways of doing the same thing (note the dominant pattern)
 - **Verify Before Removing**: Might be used dynamically or externally
 
@@ -596,23 +622,44 @@ After Codex responds:
         echo "  [5/6] Skipping Codex code review"
     fi
 
-    # ── Step 6: Gate + Report ──────────────────────────────────
+    # ── Step 6: Gate + Commit ──────────────────────────────────
+    if [[ "$SCOPE_FROM_PATH" == true ]]; then
+        COMMIT_SCOPE=$(echo "$file" | cut -d'/' -f1)
+    else
+        COMMIT_SCOPE=""
+    fi
+
+    SCOPE_PART=""
+    [[ -n "$COMMIT_SCOPE" ]] && SCOPE_PART="(${COMMIT_SCOPE})"
+
     GATE_INSTRUCTION=""
     if [[ -n "$GATE_COMMAND" ]]; then
         if [[ "$GATE_REQUIRED" == true ]]; then
             GATE_INSTRUCTION="1. Run: ${GATE_COMMAND}
 2. If the gate fails and it is caused by your changes, fix it and re-run. If unrelated, note it and proceed.
-3. Once the gate passes, summarize what changed and leave everything uncommitted."
+3. Once the gate passes, proceed to commit."
         else
             GATE_INSTRUCTION="1. Run: ${GATE_COMMAND}
-2. If it fails, note the failure but proceed anyway (gate is advisory).
-3. Summarize what changed and leave everything uncommitted."
+2. If it fails, note the failure but proceed anyway (gate is advisory)."
         fi
     else
-        GATE_INSTRUCTION="No gate command configured — skip directly to summarizing the changes."
+        GATE_INSTRUCTION="No gate command configured — skip directly to commit."
     fi
 
-    if ! run_step "6/6" "Gate + report" \
+    COMMIT_INSTRUCTION=""
+    if [[ "$AUTO_COMMIT" == true ]]; then
+        COMMIT_INSTRUCTION="Commit ONLY the files you changed in this iteration (do NOT use git add -A or git add .):
+   git add <specific files>
+   git commit -m '${COMMIT_PREFIX}${SCOPE_PART}: gc cleanup ${FILE_BASE}
+
+   <2-3 line summary of what was cleaned up>'
+
+Show the git log for the new commit."
+    else
+        COMMIT_INSTRUCTION="Auto-commit is disabled. Leave changes uncommitted and show a summary of what was changed."
+    fi
+
+    if ! run_step "6/6" "Gate + commit" \
 "First check if there are any uncommitted changes with git diff.
 
 If there are NO changes, just say 'No changes needed for $file' and stop.
@@ -620,13 +667,10 @@ If there are NO changes, just say 'No changes needed for $file' and stop.
 If there ARE changes:
 ${GATE_INSTRUCTION}
 
-At the end:
-- Leave changes uncommitted
-- Show a concise summary of the files and edits involved
-- Do not create commits or branches" \
+${COMMIT_INSTRUCTION}" \
         "$SID" "$TOOLS_FULL" "$MAX_TURNS_GATE" "$FILE_LOG/step6"; then
 
-        echo "  FAILED at gate/report"
+        echo "  FAILED at gate/commit"
         FAILED+=("$file")
         continue
     fi
@@ -670,6 +714,9 @@ echo "╔═══════════════════════�
 echo "║  Pipeline Complete                                    ║"
 echo "╠════════════════════════════════════════════════════════╣"
 echo "║  Project:    $(basename "$PROJECT_DIR")"
+if [[ "$AUTO_COMMIT" == true ]]; then
+    echo "║  Branch:     $BRANCH"
+fi
 echo "║  Succeeded:  ${#SUCCEEDED[@]}/${TOTAL} files"
 for f in "${SUCCEEDED[@]:-}"; do
     [[ -n "$f" ]] && echo "║    + $f"
@@ -683,8 +730,16 @@ fi
 echo "║  Logs:       $LOG_DIR"
 echo "╚════════════════════════════════════════════════════════╝"
 echo ""
-echo "Next steps:"
-echo "  1. Review status:   git status"
-echo "  2. Review diff:     git diff"
-echo "  3. Commit manually if the changes look correct"
-echo ""
+if [[ "$AUTO_COMMIT" == true ]]; then
+    echo "Next steps:"
+    echo "  1. Review commits:  git log --oneline main..${BRANCH}"
+    echo "  2. Review diff:     git diff main..${BRANCH}"
+    echo "  3. Push when ready: git push -u origin ${BRANCH}"
+    echo ""
+else
+    echo "Next steps:"
+    echo "  1. Review status:   git status"
+    echo "  2. Review diff:     git diff"
+    echo "  3. Commit manually if the changes look correct"
+    echo ""
+fi

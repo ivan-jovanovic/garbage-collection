@@ -7,9 +7,9 @@ allowed-tools: bash
 
 You've just made code changes. Now you'll ask the Codex agent to review them, then assess and act on its feedback.
 
-This command is designed for the v0.1 workflow:
-- changes remain uncommitted in the working tree
-- review the current diff, not a branch-based commit range
+This command works in two situations:
+- During the GC pipeline, where each iteration starts from a clean state and `git diff` represents only the current file pass before it is committed
+- During ad hoc work, where you want Codex to review the current uncommitted working tree changes
 
 ## Step 1: Gather Context
 
@@ -23,6 +23,8 @@ Run the following command to get Codex's review of the uncommitted changes:
 ```bash
 codex review --uncommitted "Focus your review on: 1. Are there bugs or logic errors? 2. Is this the simplest approach, or is it over-engineered? 3. Is there code that was added but is not actually needed? 4. Is there code that was modified unnecessarily? 5. Are there any security issues? 6. Is anything missing that should have been implemented? IMPORTANT: We are looking for code that is GOOD ENOUGH for production, not perfect. Do not flag minor style issues, nitpicks, or theoretical concerns. Only flag issues that a senior developer would consider worth fixing before merging. For each finding include the file, what the issue is, why it matters, and a suggested fix. End with a clear verdict: Is this code good enough for production?"
 ```
+
+If you are using this during the GC pipeline, review the current uncommitted diff before the step-6 commit happens. Do not wait until after the iteration is committed.
 
 ## Step 3: Assess Codex's Feedback
 

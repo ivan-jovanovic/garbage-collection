@@ -11,9 +11,9 @@ For each file matched by your glob patterns, the pipeline runs 6 steps:
 3. **Make changes** — Executes the action plan (behavior-preserving only)
 4. **Self-review** — Claude reviews its own diff and fixes issues
 5. **Code review** — Codex reviews the diff (optional, skippable)
-6. **Gate + report** — Runs your test suite and leaves changes uncommitted for review
+6. **Gate + commit** — Runs your test suite, then commits that iteration's changes
 
-Changes stay in your working tree. A final gate run verifies everything works together.
+The pipeline creates a dedicated branch for the run and, by default, makes one commit per processed file. A final gate run verifies everything works together.
 
 ## Requirements
 
@@ -50,11 +50,12 @@ Use `gc.yml` for project defaults and policy:
 - file groups and exclusions
 - the verification command
 - default Codex usage
+- default commit behavior
 
 Use CLI flags for run-specific choices:
 - which path or named group to target
 - dry-run vs execute
-- temporary overrides like skipping Codex
+- temporary overrides like skipping Codex or leaving changes uncommitted
 - resuming from a later file in the list
 
 ### Minimal config
@@ -67,13 +68,16 @@ files:
 gate:
   command: "pytest"
 
+commit:
+  auto_commit: true
+
 codex:
   enabled: false
 ```
 
 Advanced tuning such as `timeouts.*` and `max_turns.*` is supported, but it is intentionally omitted from the minimal example. Most projects should rely on the built-in defaults unless they have a concrete runtime issue to solve.
 
-The pipeline is intended to run in a clean git working tree. It uses `git diff` for self-review, optional Codex review, and final reporting.
+The pipeline is intended to run in a clean git working tree. It creates a dedicated branch for the run and uses `git diff` for per-iteration self-review and optional Codex review.
 
 ### File groups
 
@@ -129,6 +133,7 @@ Options:
   --file <path>           Deprecated alias for --path <file>
   --dry-run               Preview file list, don't execute
   --skip-codex            Skip Codex second-opinion and review steps
+  --no-commit             Leave changes uncommitted
   --resume-from <path>    Start from a specific file in the resolved file list
   -h, --help              Show help
 ```
@@ -148,8 +153,11 @@ gc.sh --path controllers
 # Run on a single file directly
 gc.sh --path src/utils/parser.py
 
-# Run on the "api" group
+# Run on the "api" group with default per-file commits
 gc.sh --group api
+
+# Run on the "api" group but leave changes uncommitted
+gc.sh --group api --no-commit
 
 # Resume from a later file in a directory run
 gc.sh --path controllers --resume-from controllers/user_controller.py
@@ -173,13 +181,7 @@ Pre-made configs for common project types:
 - Change behavior. All changes are strictly behavior-preserving.
 - Touch formatting or style. No reformatting, no renaming.
 - Add code. No new abstractions, no new comments, no new tests.
-- Create commits or branches in v0.1. You review and commit manually.
-
-## Future work
-
-Planned but intentionally omitted from v0.1:
-
-- Optional automated commit support, potentially including per-file commits after the workflow is validated in real usage.
+- Push to remote automatically. You review the branch and push when ready.
 
 ## Interactive slash commands
 

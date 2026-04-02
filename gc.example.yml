@@ -4,13 +4,14 @@
 # - what files belong to the cleanup scope
 # - what files are always excluded
 # - what verification command to run
-# - whether Codex is enabled by default
+# - whether Codex and auto-commit are enabled by default
 #
 # Use CLI flags for RUN-SPECIFIC choices:
 # - --path
 # - --group
 # - --dry-run
 # - --skip-codex
+# - --no-commit
 # - --resume-from
 # - --config
 #
@@ -53,6 +54,15 @@ gate:
   command: "make test"
   required: true  # If false, gate failures are warnings, not blockers
 
+# ── Commit Settings ──────────────────────────────────────────────
+# Default commit behavior for this project.
+# The pipeline creates a dedicated branch and commits once per file.
+# Use --no-commit for a one-off run that should leave changes uncommitted.
+commit:
+  prefix: "refactor"           # Branch prefix and commit prefix
+  scope_from_path: true        # Derive scope from first path segment (e.g. "api", "src")
+  auto_commit: true            # Set to false to leave changes uncommitted
+
 # ── Codex Integration ────────────────────────────────────────────
 # Project default. Use --skip-codex to disable Codex for a single run.
 codex:
@@ -72,8 +82,3 @@ codex:
 #   changes: 30
 #   review: 25
 #   gate: 20
-
-# Future implementation:
-# Commit automation is intentionally omitted in v0.1.
-# A later version may add optional per-file commit support once the
-# workflow and UX are stable.
