@@ -1,0 +1,38 @@
+# gc.yml — Go project example
+
+files:
+  default:
+    - "**/*.go"
+  cmd:
+    - "cmd/**/*.go"
+  internal:
+    - "internal/**/*.go"
+
+exclude:
+  - "**/vendor/**"
+  - "**/*_test.go"
+  - "**/generated/**"
+  - "**/*.pb.go"
+
+gate:
+  command: "go test ./..."
+  required: true
+
+commit:
+  prefix: "refactor"
+  scope_from_path: true
+  auto_commit: true
+
+timeouts:
+  step: 600
+  codex: 120
+
+max_turns:
+  analysis: 25
+  codex: 15
+  changes: 30
+  review: 25
+  gate: 20
+
+codex:
+  enabled: false

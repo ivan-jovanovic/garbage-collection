@@ -1,0 +1,79 @@
+# gc.yml — Garbage Collection Pipeline Configuration
+#
+# Put PROJECT DEFAULTS here:
+# - what files belong to the cleanup scope
+# - what files are always excluded
+# - what verification command to run
+# - whether Codex is enabled by default
+#
+# Use CLI flags for RUN-SPECIFIC choices:
+# - --path
+# - --group
+# - --dry-run
+# - --skip-codex
+# - --resume-from
+# - --config
+#
+# Place this file in the root of your project and run:
+#   /path/to/garbage-collection/gc.sh
+#
+# Or specify a config explicitly:
+#   /path/to/garbage-collection/gc.sh --config path/to/gc.yml
+
+# ── File Groups ───────────────────────────────────────────────────
+# Define named groups of glob patterns. Use --group <name> at runtime
+# to target one. The "default" group is used when no --group is given.
+files:
+  default:
+    - "src/**/*.py"
+
+  # Example additional groups:
+  # api:
+  #   - "api/**/*.py"
+  # frontend:
+  #   - "src/components/**/*.tsx"
+  #   - "src/hooks/**/*.ts"
+
+# ── Exclude Patterns ─────────────────────────────────────────────
+# Files matching these globs are always skipped.
+exclude:
+  - "**/__init__.py"
+  - "**/__pycache__/**"
+  - "**/node_modules/**"
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.venv/**"
+
+# ── Quality Gate ─────────────────────────────────────────────────
+# Project-level verification command to run after changes.
+# Set command to null or remove the entire section to skip the gate.
+gate:
+  command: "make test"
+  required: true  # If false, gate failures are warnings, not blockers
+
+# ── Codex Integration ────────────────────────────────────────────
+# Project default. Use --skip-codex to disable Codex for a single run.
+codex:
+  enabled: true  # Set to false to skip Codex second-opinion steps
+
+# ── Advanced Tuning (Optional) ───────────────────────────────────
+# Most projects should omit this section and rely on built-in defaults.
+# Only add these if you have a concrete reason to tune runtime behavior.
+#
+# timeouts:
+#   step: 600      # Max wall-clock time per pipeline step
+#   codex: 120     # Timeout for individual codex calls
+#
+# max_turns:
+#   analysis: 25
+#   codex: 15
+#   changes: 30
+#   review: 25
+#   gate: 20
+
+# Future implementation:
+# Commit automation is intentionally omitted in v0.1.
+# A later version may add optional per-file commit support once the
+# workflow and UX are stable.

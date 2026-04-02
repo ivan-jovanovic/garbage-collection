@@ -1,0 +1,42 @@
+# gc.yml — Node.js / TypeScript project example
+
+files:
+  default:
+    - "src/**/*.ts"
+    - "src/**/*.tsx"
+  lib:
+    - "lib/**/*.ts"
+  api:
+    - "src/api/**/*.ts"
+    - "src/routes/**/*.ts"
+
+exclude:
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/*.d.ts"
+
+gate:
+  command: "npm test"
+  required: true
+
+commit:
+  prefix: "refactor"
+  scope_from_path: true
+  auto_commit: true
+
+timeouts:
+  step: 600
+  codex: 120
+
+max_turns:
+  analysis: 25
+  codex: 15
+  changes: 30
+  review: 25
+  gate: 20
+
+codex:
+  enabled: false

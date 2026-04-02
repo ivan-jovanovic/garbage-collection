@@ -1,0 +1,39 @@
+# gc.yml — Python project example
+
+files:
+  default:
+    - "src/**/*.py"
+    - "lib/**/*.py"
+  api:
+    - "api/**/*.py"
+  tests:
+    - "tests/**/*.py"
+
+exclude:
+  - "**/__init__.py"
+  - "**/__pycache__/**"
+  - "**/.venv/**"
+  - "**/migrations/**"
+
+gate:
+  command: "pytest tests/ -v --tb=short"
+  required: true
+
+commit:
+  prefix: "refactor"
+  scope_from_path: true
+  auto_commit: true
+
+timeouts:
+  step: 600
+  codex: 120
+
+max_turns:
+  analysis: 25
+  codex: 15
+  changes: 30
+  review: 25
+  gate: 20
+
+codex:
+  enabled: false
